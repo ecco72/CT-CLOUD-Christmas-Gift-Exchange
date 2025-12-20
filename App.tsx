@@ -1,8 +1,6 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Person, Gift, GameStage, AppData } from './types';
 import { INITIAL_PEOPLE, INITIAL_GIFTS } from './constants';
-import { generateCongratulation } from './services/geminiService';
 import { saveToDB, loadFromDB } from './utils/db';
 import { Snow } from './components/Snow';
 import { AdminPanel } from './components/AdminPanel';
@@ -19,8 +17,6 @@ const App: React.FC = () => {
   
   const [currentPerson, setCurrentPerson] = useState<Person | null>(null);
   const [currentGift, setCurrentGift] = useState<Gift | null>(null);
-  const [aiMessage, setAiMessage] = useState<string>("");
-  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
 
   // --- Derived State ---
@@ -37,7 +33,6 @@ const App: React.FC = () => {
           setPeople(savedData.people);
           setGifts(savedData.gifts);
           
-          // Restore Game State if exists
           if (savedData.savedStage && savedData.savedStage !== GameStage.IDLE && savedData.savedStage !== GameStage.SELECTING_PERSON) {
              setStage(savedData.savedStage);
              
@@ -49,10 +44,6 @@ const App: React.FC = () => {
              if (savedData.savedCurrentGiftId) {
                 const g = savedData.gifts.find(g => g.id === savedData.savedCurrentGiftId);
                 if (g) setCurrentGift(g);
-             }
-
-             if (savedData.savedAiMessage) {
-                setAiMessage(savedData.savedAiMessage);
              }
           }
         }
@@ -66,7 +57,6 @@ const App: React.FC = () => {
   }, []);
 
   // --- Persistence ---
-  // Save EVERYTHING whenever state changes
   useEffect(() => {
     if (!isDataLoaded) return;
     
@@ -78,7 +68,6 @@ const App: React.FC = () => {
            savedStage: stage,
            savedCurrentPersonId: currentPerson?.id || null,
            savedCurrentGiftId: currentGift?.id || null,
-           savedAiMessage: aiMessage
         };
         await saveToDB(fullState);
       } catch (e) {
@@ -86,44 +75,43 @@ const App: React.FC = () => {
       }
     };
     
-    // Debounce slightly
     const timer = setTimeout(saveData, 300);
     return () => clearTimeout(timer);
-  }, [people, gifts, stage, currentPerson, currentGift, aiMessage, isDataLoaded]);
+  }, [people, gifts, stage, currentPerson, currentGift, isDataLoaded]);
 
-  // --- Admin Handler ---
+  // --- Handlers ---
   const handleAdminSave = async (newPeople: Person[], newGifts: Gift[]) => {
-     try {
-        // Reset state when admin saves new config
-        const resetState: AppData = { 
-           people: newPeople, 
-           gifts: newGifts,
-           savedStage: GameStage.IDLE,
-           savedCurrentPersonId: null,
-           savedCurrentGiftId: null,
-           savedAiMessage: ""
-        };
-        await saveToDB(resetState);
-        alert("設定儲存成功！網頁即將重新整理。");
-        window.location.reload();
-     } catch (e: any) {
-        console.error("Save failed", e);
-        alert("⚠️ 儲存失敗: " + e.message);
-     }
+     const resetState: AppData = { 
+        people: newPeople, 
+        gifts: newGifts,
+        savedStage: GameStage.IDLE,
+        savedCurrentPersonId: null,
+        savedCurrentGiftId: null,
+     };
+     await saveToDB(resetState);
+     window.location.reload();
   };
 
-  // --- Logic ---
+  const handleFullReset = async () => {
+     // Revert to hardcoded initial constants
+     const resetState: AppData = {
+        people: INITIAL_PEOPLE,
+        gifts: INITIAL_GIFTS,
+        savedStage: GameStage.IDLE,
+        savedCurrentPersonId: null,
+        savedCurrentGiftId: null
+     };
+     await saveToDB(resetState);
+     window.location.reload();
+  };
 
-  // 1. Pick a Person (Random)
   const handleStartDraw = useCallback(async () => {
     if (remainingPeople.length === 0) return;
 
     setStage(GameStage.SELECTING_PERSON);
-    setAiMessage("");
     setCurrentGift(null);
     setCurrentPerson(null);
 
-    // Roulette Animation
     const duration = 2500; 
     const intervalTime = 80;
     const steps = duration / intervalTime;
@@ -141,12 +129,9 @@ const App: React.FC = () => {
   }, [remainingPeople]);
 
   const finalizePersonSelection = () => {
-    // True random selection
     const randomIndex = Math.floor(Math.random() * remainingPeople.length);
     const selected = remainingPeople[randomIndex];
     setCurrentPerson(selected);
-    
-    // NEW STEP: Show the person clearly first
     setStage(GameStage.PERSON_ANNOUNCEMENT);
   };
 
@@ -154,271 +139,284 @@ const App: React.FC = () => {
      setStage(GameStage.PERSON_SELECTED);
   };
 
-  // 2. Manual Gift Selection
   const handleGiftClick = async (gift: Gift) => {
     if (stage !== GameStage.PERSON_SELECTED) return;
     if (gift.ownerId !== null) return;
     if (!currentPerson) return;
 
     setCurrentGift(gift);
-    
-    setIsGeneratingMessage(true);
-    const msg = await generateCongratulation(currentPerson.name, gift.number, gift.description);
-    setAiMessage(msg);
-    setIsGeneratingMessage(false);
-
     setStage(GameStage.GIFT_REVEALED);
   };
 
-  // 3. Confirm & Move On
+  const handleAutoPickGift = async () => {
+    if (stage !== GameStage.PERSON_SELECTED || !currentPerson) return;
+    if (remainingGifts.length === 0) return;
+
+    // Simulate "thinking" or shuffling feel
+    // Just a quick visual delay if desired, or instant.
+    // Let's pick randomly from available gifts
+    const randomIndex = Math.floor(Math.random() * remainingGifts.length);
+    const selectedGift = remainingGifts[randomIndex];
+
+    await handleGiftClick(selectedGift);
+  };
+
   const handleConfirmMatch = () => {
     if (!currentPerson || !currentGift) return;
 
-    // Update Data
     setPeople(prev => prev.map(p => p.id === currentPerson.id ? { ...p, hasDrawn: true } : p));
     setGifts(prev => prev.map(g => g.id === currentGift.id ? { ...g, ownerId: currentPerson.id, revealed: true } : g));
 
     setStage(GameStage.IDLE);
     setCurrentPerson(null);
     setCurrentGift(null);
-    setAiMessage("");
   };
 
-  // --- Renders ---
+  // --- Render Helpers ---
+
+  // Generate a consistent color based on ID for avatar background
+  const getAvatarColor = (id: number) => {
+      const colors = ['bg-red-600', 'bg-green-600', 'bg-blue-600', 'bg-purple-600', 'bg-orange-600', 'bg-teal-600'];
+      return colors[id % colors.length];
+  };
 
   if (!isDataLoaded) {
     return (
       <div className="min-h-screen bg-christmas-green flex items-center justify-center text-christmas-gold text-2xl font-bold">
-        🎄 聖誕精神載入中... 🎅
+        🎄 載入中... 🎅
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen relative flex flex-col font-serif pb-20 select-none">
+    <div className="min-h-screen relative flex flex-col font-serif select-none bg-gradient-to-b from-christmas-green to-christmas-dark text-white overflow-hidden">
       <Snow />
       
       {showAdmin && (
          <AdminPanel 
             initialPeople={people} 
             initialGifts={gifts} 
-            onSave={handleAdminSave} 
+            onSave={handleAdminSave}
+            onReset={handleFullReset}
             onClose={() => setShowAdmin(false)} 
          />
       )}
 
       {/* Header */}
-      {/* UPDATE: Changed z-10 to z-40 to ensure sticky header stays on top of content */}
-      <header className="p-4 bg-christmas-red shadow-lg z-40 flex justify-between items-center border-b-4 border-christmas-gold sticky top-0">
-        <div className="w-10"></div> 
-        <div className="text-center">
-          <h1 className="text-2xl md:text-5xl font-bold text-christmas-gold drop-shadow-md">
-            🎄 聖誕交換禮物 🎁
-          </h1>
-          <p className="text-christmas-cream mt-2 opacity-90 text-sm md:text-base">
-            {isComplete 
-              ? "交換完成！聖誕快樂！" 
-              : `目前進度：第 ${people.length - remainingPeople.length + 1} 位 / 共 ${people.length} 位`}
-          </p>
+      <header className="px-6 py-4 bg-christmas-red/90 backdrop-blur-md shadow-2xl z-40 flex justify-between items-center border-b-4 border-christmas-gold sticky top-0">
+        <div className="flex items-center gap-2">
+            <span className="text-3xl animate-bounce">🎄</span>
+            <div className="hidden md:block">
+                <h1 className="text-xl font-bold text-christmas-gold leading-none tracking-wider">
+                  誠雲抽禮物
+                </h1>
+                <p className="text-xs text-white/80">
+                  Merry Christmas 2025
+                </p>
+            </div>
         </div>
+        
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
+            <div className="bg-christmas-dark/50 px-4 py-1 rounded-full border border-christmas-gold/30 backdrop-blur">
+                <span className="text-christmas-gold font-bold font-mono">
+                    {people.length - remainingPeople.length} / {people.length}
+                </span>
+            </div>
+        </div>
+
         <button 
            onClick={() => setShowAdmin(true)}
-           className="text-christmas-gold hover:text-white transition-colors p-2 text-2xl"
+           className="bg-christmas-dark/30 hover:bg-christmas-dark/60 text-christmas-gold p-2 rounded-lg transition-all border border-transparent hover:border-christmas-gold"
            title="後台設定"
         >
-           ⚙️
+           ⚙️ 設定
         </button>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-grow p-4 md:p-8 flex flex-col items-center justify-start z-10 gap-8 w-full max-w-7xl mx-auto">
+      {/* Main Content */}
+      <main className="flex-grow p-4 md:p-8 flex flex-col items-center justify-start z-10 w-full max-w-7xl mx-auto mb-[200px]">
         
-        {/* --- MODAL: SELECTING, ANNOUNCING, or REVEALING --- */}
+        {/* --- MODAL --- */}
         {(stage === GameStage.SELECTING_PERSON || stage === GameStage.PERSON_ANNOUNCEMENT || stage === GameStage.GIFT_REVEALED) && (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-christmas-green border-4 border-christmas-gold rounded-xl p-8 max-w-3xl w-full text-center shadow-2xl relative overflow-hidden animate-bounce-short">
+            <div className="bg-christmas-green border-4 border-christmas-gold rounded-xl p-8 max-w-4xl w-full text-center shadow-2xl relative overflow-hidden flex flex-col items-center justify-center min-h-[400px]">
               
-              {/* Confetti/Decor if Revealed */}
-              {(stage === GameStage.GIFT_REVEALED || stage === GameStage.PERSON_ANNOUNCEMENT) && (
-                <div className="absolute inset-0 pointer-events-none opacity-20 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')]"></div>
+              {/* Background Decor */}
+              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-yellow-300 to-transparent animate-pulse"></div>
+
+              {/* STAGE: Selecting / Announcing Person */}
+              {stage !== GameStage.GIFT_REVEALED && currentPerson && (
+                  <div className="animate-in zoom-in duration-300 flex flex-col items-center">
+                      <div className="text-christmas-gold font-bold text-xl mb-4 tracking-widest uppercase">
+                          {stage === GameStage.SELECTING_PERSON ? "抽選中..." : "THE WINNER IS"}
+                      </div>
+                      
+                      {/* Big Name Display */}
+                      <div className="bg-white text-christmas-red px-12 py-8 rounded-lg shadow-[0_0_50px_rgba(255,255,255,0.2)] border-4 border-christmas-red transform -rotate-2">
+                          <h2 className="text-5xl md:text-7xl font-black tracking-tight whitespace-nowrap">
+                              {currentPerson.name}
+                          </h2>
+                      </div>
+
+                      {stage === GameStage.PERSON_ANNOUNCEMENT && (
+                        <button 
+                            onClick={handleProceedToGiftSelection}
+                            className="mt-12 bg-christmas-gold text-christmas-dark font-bold py-4 px-12 rounded-full text-2xl hover:bg-yellow-400 hover:scale-110 transition-all shadow-xl animate-bounce"
+                        >
+                            開始選禮物 🎁
+                        </button>
+                      )}
+                  </div>
               )}
 
-              <h2 className="text-3xl font-bold text-christmas-gold mb-8">
-                {stage === GameStage.SELECTING_PERSON && "🎅 正在抽出幸運兒..."}
-                {stage === GameStage.PERSON_ANNOUNCEMENT && "🎉 輪到你了！ 🎉"}
-                {stage === GameStage.GIFT_REVEALED && "🎁 禮物揭曉..."}
-              </h2>
+              {/* STAGE: Gift Revealed */}
+              {stage === GameStage.GIFT_REVEALED && currentGift && (
+                  <div className="w-full flex flex-col items-center animate-in scale-95 duration-500">
+                     <div className="text-christmas-cream/60 font-bold text-lg mb-2 uppercase tracking-widest">
+                         CONGRATULATIONS
+                     </div>
 
-              <div className="flex flex-col md:flex-row items-center justify-center gap-8 mb-8">
-                
-                {/* 1. Person Card Display (Hide when gift is revealed) */}
-                {currentPerson && stage !== GameStage.GIFT_REVEALED && (
-                  <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500">
-                    <div className="relative">
-                       <img 
-                         src={currentPerson.photoUrl} 
-                         alt={currentPerson.name}
-                         className="w-48 h-48 md:w-64 md:h-64 rounded-full border-8 border-white shadow-2xl object-cover bg-gray-200"
-                       />
-                       {stage === GameStage.PERSON_ANNOUNCEMENT && (
-                          <div className="absolute -bottom-2 -right-2 text-6xl animate-bounce">👋</div>
-                       )}
-                    </div>
-                    <p className="mt-6 text-4xl font-bold text-white drop-shadow-lg">{currentPerson.name}</p>
-                  </div>
-                )}
-
-                {/* 2. Gift Card Display (Show ONLY when revealed, centered, large) */}
-                {stage === GameStage.GIFT_REVEALED && currentGift && (
-                  <div className="flex flex-col items-center animate-in fade-in zoom-in duration-700">
-                     <div className="relative mb-6">
-                        <img 
-                           src={currentGift.photoUrl} 
-                           alt="Gift" 
-                           className="w-64 h-64 md:w-80 md:h-80 rounded-xl border-8 border-christmas-gold shadow-2xl object-cover bg-white"
-                        />
-                        <div className="absolute -top-6 -right-6 bg-christmas-red text-white text-2xl font-bold w-16 h-16 flex items-center justify-center rounded-full border-4 border-white shadow-lg rotate-12">
-                           #{currentGift.number}
+                     {/* The Gift Card */}
+                     <div className="bg-gradient-to-br from-white to-gray-100 w-full max-w-2xl rounded-xl shadow-2xl p-1 border-8 border-double border-christmas-gold">
+                        <div className="bg-white border-2 border-dashed border-christmas-green p-10 md:p-16 flex flex-col items-center justify-center min-h-[300px]">
+                            {/* Just the description, huge and elegant */}
+                            <p className="text-christmas-dark text-3xl md:text-5xl font-bold leading-tight break-words font-serif">
+                                {currentGift.description}
+                            </p>
                         </div>
                      </div>
-                     <div className="bg-white/90 p-4 rounded-xl border-2 border-christmas-gold max-w-md w-full">
-                        <h3 className="text-christmas-dark text-xl md:text-2xl font-bold mb-2">
-                           {currentGift.description}
-                        </h3>
-                     </div>
+
+                     <button 
+                        onClick={handleConfirmMatch}
+                        className="mt-8 bg-christmas-red text-white font-bold py-3 px-10 rounded-full text-xl hover:bg-red-700 transition-colors shadow-lg border-2 border-christmas-gold flex items-center gap-2"
+                      >
+                        <span>確認領取</span>
+                        <span className="text-2xl">🎅</span>
+                      </button>
                   </div>
-                )}
-              </div>
-
-              {/* AI Message Area */}
-              {stage === GameStage.GIFT_REVEALED && (
-                <div className="bg-white/10 p-4 rounded-lg mb-6 min-h-[60px] flex items-center justify-center">
-                    <p className="text-lg italic text-christmas-gold">{aiMessage}</p>
-                </div>
               )}
-
-              {/* Controls */}
-              <div className="flex justify-center mt-4">
-                {stage === GameStage.PERSON_ANNOUNCEMENT && (
-                   <button 
-                     onClick={handleProceedToGiftSelection}
-                     className="bg-christmas-red text-white font-bold py-4 px-10 rounded-full text-2xl hover:scale-105 hover:bg-red-700 transition-all shadow-xl border-2 border-christmas-gold animate-pulse"
-                   >
-                     請選擇你的禮物！ 🎁
-                   </button>
-                )}
-
-                {stage === GameStage.GIFT_REVEALED && (
-                  <button 
-                    onClick={handleConfirmMatch}
-                    className="bg-christmas-green text-white font-bold py-3 px-8 rounded-full text-xl hover:bg-green-700 transition-colors shadow-lg border-2 border-christmas-gold"
-                  >
-                    確認並繼續 🎄
-                  </button>
-                )}
-              </div>
             </div>
           </div>
         )}
 
-        {/* --- MANUAL SELECTION PROMPT --- */}
+        {/* --- PROMPT BAR --- */}
         {stage === GameStage.PERSON_SELECTED && currentPerson && (
-           <div className="bg-christmas-dark/90 p-6 rounded-xl border-2 border-christmas-gold text-center animate-pulse sticky top-24 z-30 shadow-2xl mx-4 w-full max-w-md">
-              <h2 className="text-2xl md:text-3xl text-christmas-gold font-bold mb-2 flex items-center justify-center gap-3">
-                 <img src={currentPerson.photoUrl} className="w-10 h-10 rounded-full border border-white" />
-                 {currentPerson.name}
-              </h2>
-              <p className="text-white text-lg font-bold">請點擊下方的禮物盒！</p>
+           <div className="sticky top-24 z-30 w-full max-w-xl mx-auto flex flex-col gap-4">
+               <div className="bg-christmas-gold text-christmas-dark p-4 rounded-xl shadow-2xl border-4 border-white transform hover:scale-105 transition-transform cursor-default flex items-center justify-between animate-pulse">
+                  <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full ${getAvatarColor(currentPerson.id)} text-white flex items-center justify-center font-bold border-2 border-white`}>
+                          {currentPerson.name.charAt(0)}
+                      </div>
+                      <div className="flex flex-col text-left">
+                          <span className="text-xs font-bold opacity-70">當前玩家</span>
+                          <span className="text-xl font-black">{currentPerson.name}</span>
+                      </div>
+                  </div>
+                  <div className="font-bold text-lg flex items-center gap-2">
+                      <span className="hidden md:inline">請選擇禮物 或</span>
+                      <span className="text-2xl">👇</span>
+                  </div>
+               </div>
+               
+               {/* Auto Pick Button */}
+               <button 
+                  onClick={handleAutoPickGift}
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl shadow-xl border-2 border-white/50 transition-all flex items-center justify-center gap-2 animate-in slide-in-from-top duration-300"
+               >
+                   <span>🤖 系統代抽 (請假專用)</span>
+               </button>
            </div>
         )}
 
-        {/* Start Button (Idle State) */}
+        {/* Start Button */}
         {stage === GameStage.IDLE && !isComplete && (
-           <button 
-              onClick={handleStartDraw}
-              className="bg-christmas-red text-white text-3xl font-bold py-8 px-16 rounded-3xl shadow-2xl border-4 border-christmas-gold animate-bounce hover:scale-105 transition-transform mt-8"
-            >
-              開始抽選 🎲
-           </button>
+           <div className="my-8">
+               <button 
+                  onClick={handleStartDraw}
+                  className="group relative bg-christmas-red text-white text-4xl font-black py-8 px-20 rounded-2xl shadow-[0_10px_0_rgb(150,0,0)] active:shadow-[0_2px_0_rgb(150,0,0)] active:translate-y-2 transition-all border-4 border-christmas-gold"
+                >
+                  <span className="drop-shadow-md">開始抽選</span>
+                  <div className="absolute -top-4 -right-4 text-5xl group-hover:rotate-12 transition-transform">🎁</div>
+                  <div className="absolute -bottom-4 -left-4 text-5xl group-hover:-rotate-12 transition-transform">🎄</div>
+               </button>
+           </div>
         )}
 
         {isComplete && (
-           <div className="text-4xl font-bold text-christmas-gold text-center py-10 bg-black/30 rounded-xl p-8 backdrop-blur">
-              🎉 所有禮物都已交換完畢！ 🎉
+           <div className="text-5xl font-bold text-christmas-gold text-center py-20 animate-pulse">
+              🎉 聖誕快樂 🎉
            </div>
         )}
 
-        {/* --- GRID DISPLAYS --- */}
-        
-        {/* Gift Grid */}
-        <div className="w-full">
-          <h3 className="text-2xl font-bold text-christmas-gold mb-4 border-b border-white/20 pb-2">🎁 禮物池</h3>
-          <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-3">
+        {/* --- GIFT GRID --- */}
+        <div className="w-full mt-4">
+          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-3 md:gap-4">
              {gifts.map((gift) => {
                 const isAvailable = gift.ownerId === null;
                 const isSelectable = stage === GameStage.PERSON_SELECTED && isAvailable;
-                
+                const owner = people.find(p => p.id === gift.ownerId);
+
                 return (
                 <button 
                   key={gift.id}
                   onClick={() => handleGiftClick(gift)}
                   disabled={!isSelectable && isAvailable} 
                   className={`
-                    relative aspect-[3/4] rounded-lg border-2 transition-all duration-300 overflow-hidden
+                    relative aspect-square rounded-xl shadow-lg transition-all duration-300 flex flex-col items-center justify-center
                     ${gift.ownerId 
-                      ? 'border-christmas-gold bg-white cursor-default' 
+                      ? 'bg-christmas-dark/40 border-2 border-christmas-green opacity-80' // Taken
                       : isSelectable
-                        ? 'border-christmas-gold bg-christmas-red cursor-pointer hover:scale-110 hover:shadow-[0_0_15px_rgba(241,213,112,0.8)] hover:z-20'
-                        : 'border-white/30 bg-christmas-red/20 opacity-60 cursor-not-allowed'
+                        ? 'bg-gradient-to-br from-christmas-red to-red-800 border-2 border-christmas-gold cursor-pointer hover:scale-110 hover:shadow-[0_0_20px_rgba(241,213,112,0.6)] z-10' // Active
+                        : 'bg-christmas-red/20 border-2 border-white/10 opacity-50 cursor-not-allowed' // Inactive
                     }
                   `}
                 >
-                  {/* If revealed, show owner's face on top of gift */}
                   {gift.ownerId ? (
-                     <div className="absolute inset-0 flex flex-col items-center justify-center p-1">
-                        <span className="absolute top-1 left-1 text-xs font-bold text-christmas-dark bg-christmas-gold px-1 rounded">#{gift.number}</span>
-                        <img 
-                           src={people.find(p => p.id === gift.ownerId)?.photoUrl} 
-                           className="w-16 h-16 rounded-full object-cover border-2 border-christmas-green shadow-sm mb-1"
-                           alt="Owner"
-                        />
-                        <p className="text-[10px] text-center font-bold text-christmas-dark leading-tight truncate w-full px-1">
-                           {people.find(p => p.id === gift.ownerId)?.name}
-                        </p>
+                     // Taken State
+                     <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center">
+                        <div className={`w-8 h-8 rounded-full ${getAvatarColor(owner?.id || 0)} flex items-center justify-center text-xs text-white font-bold border border-white/50 mb-1`}>
+                            {owner?.name.charAt(0)}
+                        </div>
+                        <span className="text-[10px] text-christmas-gold font-bold truncate w-full">{owner?.name}</span>
+                        <span className="text-[9px] text-white/50 mt-1">#{gift.number}</span>
                      </div>
                   ) : (
-                    <div className="absolute inset-0 flex items-center justify-center text-christmas-cream font-bold text-xl group">
-                       <span className={isSelectable ? 'animate-bounce' : ''}>#{gift.number}</span>
-                    </div>
+                    // Available State
+                    <>
+                       <div className="text-3xl mb-1 opacity-80">🎁</div>
+                       <span className={`text-xl font-bold font-mono ${isSelectable ? 'text-white' : 'text-white/30'}`}>
+                           {gift.number}
+                       </span>
+                    </>
                   )}
                 </button>
              )})}
           </div>
         </div>
 
-        {/* Remaining People */}
-        <div className="w-full opacity-80 hover:opacity-100 transition-opacity">
-           <h3 className="text-xl font-bold text-christmas-gold mb-4 border-b border-white/20 pb-2">🎅 等待抽選名單</h3>
-           <div className="flex flex-wrap gap-2 justify-center">
-              {people.filter(p => !p.hasDrawn).map((person) => (
-                 <div key={person.id} className="relative group">
-                    <img 
-                      src={person.photoUrl} 
-                      alt={person.name}
-                      className={`w-10 h-10 rounded-full border border-white/50 object-cover bg-gray-600 ${currentPerson?.id === person.id ? 'ring-4 ring-christmas-gold scale-125 z-10' : ''}`}
-                    />
-                 </div>
-              ))}
-              {people.filter(p => !p.hasDrawn).length === 0 && (
-                 <p className="text-gray-400 italic">所有人都已抽完！</p>
-              )}
-           </div>
-        </div>
-
       </main>
       
-      <footer className="p-4 text-center text-sm text-white/50">
-         設定人數: {people.length} 人 • 安全重新整理已啟用
+      {/* Footer: Waiting List Drawer */}
+      <footer className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t-4 border-christmas-gold shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-40 max-h-[180px] flex flex-col">
+         <div className="bg-christmas-gold text-christmas-dark text-xs font-bold px-4 py-1 self-start rounded-tr-lg -mt-7 shadow-lg ml-4">
+            待抽選名單 ({remainingPeople.length})
+         </div>
+         <div className="p-4 overflow-y-auto flex-grow custom-scrollbar">
+            {remainingPeople.length > 0 ? (
+                <div className="flex flex-wrap gap-2 justify-center md:justify-start">
+                    {remainingPeople.map(person => (
+                        <div key={person.id} className="bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-full px-3 py-1 flex items-center gap-2 transition-colors">
+                            <div className={`w-2 h-2 rounded-full ${getAvatarColor(person.id)}`}></div>
+                            <span className="text-gray-300 text-sm font-medium">{person.name}</span>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="w-full h-full flex items-center justify-center text-christmas-gold/50 italic">
+                    全部抽選完畢！
+                </div>
+            )}
+         </div>
       </footer>
     </div>
   );

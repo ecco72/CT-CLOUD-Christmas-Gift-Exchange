@@ -2,7 +2,6 @@
 export interface Person {
   id: number;
   name: string;
-  photoUrl: string;
   hasDrawn: boolean;
 }
 
@@ -10,7 +9,6 @@ export interface Gift {
   id: number;
   number: number;
   description: string;
-  photoUrl: string;
   revealed: boolean;
   ownerId: number | null; // ID of the person who won this gift
 }
@@ -31,5 +29,4 @@ export interface AppData {
   savedStage?: GameStage;
   savedCurrentPersonId?: number | null;
   savedCurrentGiftId?: number | null;
-  savedAiMessage?: string;
 }
