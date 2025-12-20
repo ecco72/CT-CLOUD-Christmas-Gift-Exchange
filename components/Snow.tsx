@@ -1,6 +1,9 @@
+
 import React, { useEffect, useState } from 'react';
 
-export const Snow: React.FC = () => {
+// Using React.memo prevents the snow from re-rendering/resetting 
+// when the parent App component updates its state rapidly (e.g. during the roulette).
+export const Snow: React.FC = React.memo(() => {
   const [flakes, setFlakes] = useState<number[]>([]);
 
   useEffect(() => {
@@ -24,4 +27,4 @@ export const Snow: React.FC = () => {
       ))}
     </div>
   );
-};
+});
