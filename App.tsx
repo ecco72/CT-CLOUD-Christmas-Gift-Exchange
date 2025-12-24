@@ -376,7 +376,7 @@ const App: React.FC = () => {
               onClick={handleAutoPickGift}
               className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl shadow-xl border-2 border-white/50 transition-all flex items-center justify-center gap-2 animate-in slide-in-from-top duration-300"
             >
-              <span>🤖 系統代抽 (請假專用)</span>
+              <span>🤖 系統代抽</span>
             </button>
           </div>
         )}
@@ -408,7 +408,7 @@ const App: React.FC = () => {
               const isAvailable = gift.ownerId === null;
               const isSelectable = stage === GameStage.PERSON_SELECTED && isAvailable;
               const owner = people.find(p => p.id === gift.ownerId);
-              const isWish = gift.number >= 39 && gift.number <= 45;
+              const isWish = gift.number >= 38 && gift.number <= 45;
 
               return (
                 <button

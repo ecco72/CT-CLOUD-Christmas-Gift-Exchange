@@ -22,7 +22,7 @@ export const INITIAL_PEOPLE: Person[] = EMPLOYEE_NAMES.map((name, index) => ({
 
 export const INITIAL_GIFTS: Gift[] = Array.from({ length: TOTAL_PARTICIPANTS }, (_, i) => {
   const number = i + 1;
-  const prefix = number <= 38 ? "禮物" : "神秘禮物";
+  const prefix = number <= 37 ? "禮物" : "神秘禮物";
   return {
     id: number,
     number: number,
