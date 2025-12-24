@@ -20,11 +20,15 @@ export const INITIAL_PEOPLE: Person[] = EMPLOYEE_NAMES.map((name, index) => ({
   hasDrawn: false,
 }));
 
-export const INITIAL_GIFTS: Gift[] = Array.from({ length: TOTAL_PARTICIPANTS }, (_, i) => ({
-  id: i + 1,
-  number: i + 1,
-  // Placeholder description. Admin should fill these out.
-  description: `神秘禮物 #${i + 1} - 裡面會有什麼驚喜呢？`,
-  revealed: false,
-  ownerId: null,
-}));
+export const INITIAL_GIFTS: Gift[] = Array.from({ length: TOTAL_PARTICIPANTS }, (_, i) => {
+  const number = i + 1;
+  const prefix = number <= 38 ? "禮物" : "神秘禮物";
+  return {
+    id: number,
+    number: number,
+    // Placeholder description. Admin should fill these out.
+    description: `${prefix} #${number} - 裡面會有什麼驚喜呢？`,
+    revealed: false,
+    ownerId: null,
+  };
+});
