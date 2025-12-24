@@ -19,6 +19,8 @@ const App: React.FC = () => {
   const [currentGift, setCurrentGift] = useState<Gift | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
 
+  const [lastCompleteRound, setLastCompleteRound] = useState<{ personId: number; giftId: number } | null>(null);
+
   // --- Derived State ---
   const remainingPeople = people.filter(p => !p.hasDrawn);
   const remainingGifts = gifts.filter(g => g.ownerId === null);
@@ -32,6 +34,7 @@ const App: React.FC = () => {
         if (savedData) {
           setPeople(savedData.people);
           setGifts(savedData.gifts);
+          if (savedData.lastCompleteRound) setLastCompleteRound(savedData.lastCompleteRound);
 
           if (savedData.savedStage && savedData.savedStage !== GameStage.IDLE && savedData.savedStage !== GameStage.SELECTING_PERSON) {
             setStage(savedData.savedStage);
@@ -68,6 +71,7 @@ const App: React.FC = () => {
           savedStage: stage,
           savedCurrentPersonId: currentPerson?.id || null,
           savedCurrentGiftId: currentGift?.id || null,
+          lastCompleteRound,
         };
         await saveToDB(fullState);
       } catch (e) {
@@ -77,7 +81,7 @@ const App: React.FC = () => {
 
     const timer = setTimeout(saveData, 300);
     return () => clearTimeout(timer);
-  }, [people, gifts, stage, currentPerson, currentGift, isDataLoaded]);
+  }, [people, gifts, stage, currentPerson, currentGift, lastCompleteRound, isDataLoaded]);
 
   // --- Handlers ---
   const handleAdminSave = async (newPeople: Person[], newGifts: Gift[]) => {
@@ -87,6 +91,7 @@ const App: React.FC = () => {
       savedStage: GameStage.IDLE,
       savedCurrentPersonId: null,
       savedCurrentGiftId: null,
+      lastCompleteRound: null,
     };
     await saveToDB(resetState);
     window.location.reload();
@@ -99,7 +104,8 @@ const App: React.FC = () => {
       gifts: INITIAL_GIFTS,
       savedStage: GameStage.IDLE,
       savedCurrentPersonId: null,
-      savedCurrentGiftId: null
+      savedCurrentGiftId: null,
+      lastCompleteRound: null
     };
     await saveToDB(resetState);
     window.location.reload();
@@ -176,10 +182,36 @@ const App: React.FC = () => {
 
     setPeople(prev => prev.map(p => p.id === currentPerson.id ? { ...p, hasDrawn: true } : p));
     setGifts(prev => prev.map(g => g.id === currentGift.id ? { ...g, ownerId: currentPerson.id, revealed: true } : g));
+    setLastCompleteRound({ personId: currentPerson.id, giftId: currentGift.id });
 
     setStage(GameStage.IDLE);
     setCurrentPerson(null);
     setCurrentGift(null);
+  };
+
+  const handleUndo = () => {
+    if (!lastCompleteRound) return;
+
+    const { personId, giftId } = lastCompleteRound;
+
+    // Revert state
+    setPeople(prev => prev.map(p => p.id === personId ? { ...p, hasDrawn: false } : p));
+    setGifts(prev => prev.map(g => g.id === giftId ? { ...g, ownerId: null, revealed: false } : g));
+
+    // Restore context
+    const person = people.find(p => p.id === personId);
+    if (person) setCurrentPerson(person); // Note: person object from 'people' might be stale in this closure if we strictly used 'people' but here we find it from current state 'people' in next render? No, 'people' is state.
+    // Actually, we must ensure we get the fresh person object or just the ID is enough if logic relies on it?
+    // currentPerson state is an object.
+    // Let's grab the person object that *was* modified. Wait, 'people' in this scope is current state. The person in 'people' currently has hasDrawn=true. We want to use the one with hasDrawn=false *after* update?
+    // Actually, for UI, we just need to set the person.
+    // Better:
+    const p = people.find(pv => pv.id === personId);
+    if (p) setCurrentPerson({ ...p, hasDrawn: false });
+
+    // Go back to selection
+    setStage(GameStage.PERSON_SELECTED);
+    setLastCompleteRound(null);
   };
 
   // --- Render Helpers ---
@@ -296,13 +328,24 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  <button
-                    onClick={handleConfirmMatch}
-                    className="mt-8 bg-christmas-red text-white font-bold py-3 px-10 rounded-full text-xl hover:bg-red-700 transition-colors shadow-lg border-2 border-christmas-gold flex items-center gap-2"
-                  >
-                    <span>確認領取</span>
-                    <span className="text-2xl">🎅</span>
-                  </button>
+                  <div className="flex gap-4 mt-8">
+                    <button
+                      onClick={() => {
+                        setCurrentGift(null);
+                        setStage(GameStage.PERSON_SELECTED);
+                      }}
+                      className="bg-gray-500 text-white font-bold py-3 px-6 rounded-full text-xl hover:bg-gray-600 transition-colors shadow-lg border-2 border-gray-400 flex items-center gap-2"
+                    >
+                      <span>↩️ 重選</span>
+                    </button>
+                    <button
+                      onClick={handleConfirmMatch}
+                      className="bg-christmas-red text-white font-bold py-3 px-10 rounded-full text-xl hover:bg-red-700 transition-colors shadow-lg border-2 border-christmas-gold flex items-center gap-2"
+                    >
+                      <span>確認領取</span>
+                      <span className="text-2xl">🎅</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -420,6 +463,17 @@ const App: React.FC = () => {
         </div>
 
       </main>
+
+      {/* Undo Button (Fixed Bottom Left) */}
+      {lastCompleteRound && (isComplete || stage === GameStage.IDLE) && (
+        <button
+          onClick={handleUndo}
+          className="fixed bottom-2 right-2 z-50 text-white/50 hover:text-white hover:underline text-xs font-sans transition-colors p-2"
+          title={`撤銷上一次: ${people.find(p => p.id === lastCompleteRound.personId)?.name}`}
+        >
+          重新選取
+        </button>
+      )}
 
       {/* Footer: Waiting List Drawer */}
       <footer className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t-4 border-christmas-gold shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-40 max-h-[180px] flex flex-col">

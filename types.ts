@@ -29,4 +29,5 @@ export interface AppData {
   savedStage?: GameStage;
   savedCurrentPersonId?: number | null;
   savedCurrentGiftId?: number | null;
+  lastCompleteRound?: { personId: number; giftId: number } | null;
 }
